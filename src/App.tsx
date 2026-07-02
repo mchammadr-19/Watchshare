@@ -706,24 +706,24 @@ export default function App() {
 
       if (logoLoaded && logoImg.naturalWidth > 0) {
         ctx.save();
-        ctx.globalAlpha = 0.25; // elegant transparent watermark
-        const logoW = 280;
+        ctx.globalAlpha = 0.12; // more transparent watermark
+        const logoW = 200; // smaller
         const logoH = logoW * (logoImg.naturalHeight / logoImg.naturalWidth);
         const logoX = (canvas.width - logoW) / 2;
-        const logoY = 1735;
+        const logoY = 1710; // shifted up from 1735
         ctx.drawImage(logoImg, logoX, logoY, logoW, logoH);
         ctx.restore();
       } else {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.font = 'bold 24px Inter, sans-serif';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'; // more transparent
+        ctx.font = 'bold 20px Inter, sans-serif'; // smaller
         ctx.textAlign = 'center';
-        ctx.fillText("WATCHSHARE", canvas.width / 2, 1765);
+        ctx.fillText("WATCHSHARE", canvas.width / 2, 1730); // shifted up from 1765
       }
       
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.font = '500 16px Inter, sans-serif';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.04)'; // more transparent
+      ctx.font = '500 14px Inter, sans-serif'; // smaller
       ctx.textAlign = 'center';
-      ctx.fillText("TMDB CONNECTION ACTIVE", canvas.width / 2, 1805);
+      ctx.fillText("TMDB CONNECTION ACTIVE", canvas.width / 2, 1770); // shifted up from 1805
       ctx.restore();
 
       const blob = await new Promise<Blob | null>(res => {
@@ -837,7 +837,7 @@ export default function App() {
           <img 
             src="/watchshare_logo_wide.png" 
             alt="WatchShare" 
-            className="h-8 md:h-9 w-auto object-contain rounded" 
+            className="h-5 md:h-6 w-auto object-contain rounded" 
             referrerPolicy="no-referrer"
           />
         </div>
