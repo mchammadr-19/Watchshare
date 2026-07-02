@@ -78,6 +78,54 @@ export default function App() {
   const [customPoster, setCustomPoster] = useState<string | null>(null);
   const [allPosters, setAllPosters] = useState<string[]>([]);
   const [personalRating, setPersonalRating] = useState(0);
+  const [isSlidingStars, setIsSlidingStars] = useState(false);
+  const pointerStartRef = useRef<{ x: number; y: number; hasMoved: boolean } | null>(null);
+
+  const handleStarPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsSlidingStars(true);
+    
+    // Calculate raw rating
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const rawRating = Math.max(0, Math.min((x / rect.width) * 5, 5));
+    
+    // Set pointer initial start positions
+    pointerStartRef.current = { x: e.clientX, y: e.clientY, hasMoved: false };
+
+    // Set rating as whole number (tap behavior) initially
+    const wholeRating = Math.max(1, Math.min(5, Math.ceil(rawRating)));
+    setPersonalRating(wholeRating);
+  };
+
+  const handleStarPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isSlidingStars && pointerStartRef.current) {
+      const dx = Math.abs(e.clientX - pointerStartRef.current.x);
+      const dy = Math.abs(e.clientY - pointerStartRef.current.y);
+      
+      // If we move more than a small threshold (e.g., 5px), consider it a slide/drag
+      if (dx > 5 || dy > 5) {
+        pointerStartRef.current.hasMoved = true;
+      }
+
+      if (pointerStartRef.current.hasMoved) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+        const rawRating = (x / rect.width) * 5;
+        const roundedRating = Math.round(rawRating * 10) / 10;
+        setPersonalRating(roundedRating < 0.1 ? 0 : roundedRating);
+      }
+    }
+  };
+
+  const handleStarPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (err) {}
+    setIsSlidingStars(false);
+    pointerStartRef.current = null;
+  };
+
   const [logoTapped, setLogoTapped] = useState(false);
   const [showDonateModal, setShowDonateModal] = useState(false);
 
@@ -443,9 +491,10 @@ export default function App() {
       let bgImgLoaded = false;
       const bgImg = new Image();
       bgImg.crossOrigin = "anonymous";
-      bgImg.src = item.backdrop_path 
+      const bgBaseUrl = item.backdrop_path 
         ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` 
         : `${TMDB_IMAGE_BASE}${posterToUse}`;
+      bgImg.src = bgBaseUrl + (bgBaseUrl.includes('?') ? '&' : '?') + `nocache=${Date.now()}`;
       
       await new Promise<void>(resolve => {
         bgImg.onload = () => {
@@ -481,7 +530,7 @@ export default function App() {
       let imgLoaded = false;
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.src = `${TMDB_IMAGE_BASE}${posterToUse}`;
+      img.src = `${TMDB_IMAGE_BASE}${posterToUse}${posterToUse ? `?nocache=${Date.now()}` : ""}`;
       await new Promise<void>(resolve => {
         img.onload = () => {
           imgLoaded = true;
@@ -618,22 +667,63 @@ export default function App() {
         let startX = (canvas.width - totalStarsWidth) / 2 + starOuter;
         const starY = boxY + boxH + 45;
         for (let i = 1; i <= 5; i++) {
-          ctx.fillStyle = i <= personalRating ? '#facc15' : 'rgba(255, 255, 255, 0.25)';
-          drawStarPath(ctx, startX, starY, 5, starOuter, starInner); 
+          // Draw unfilled star base
+          ctx.save();
+          drawStarPath(ctx, startX, starY, 5, starOuter, starInner);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+          ctx.fill();
+          ctx.restore();
+
+          // Calculate fill amount for this specific star (between 0 and 1)
+          const fillAmount = Math.max(0, Math.min(1, personalRating - (i - 1)));
+          if (fillAmount > 0) {
+            ctx.save();
+            drawStarPath(ctx, startX, starY, 5, starOuter, starInner);
+            ctx.clip();
+            ctx.fillStyle = '#facc15';
+            ctx.fillRect(startX - starOuter, starY - starOuter, starOuter * 2 * fillAmount, starOuter * 2);
+            ctx.restore();
+          }
           startX += starWidth + starGap;
         }
       }
 
       // 9. Draw attribution logo/text watermarks gracefully without requiring missing local files
       ctx.save();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.font = 'bold 24px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText("WATCHSHARE", canvas.width / 2, 1800);
+      let logoLoaded = false;
+      const logoImg = new Image();
+      logoImg.src = "/watchshare_logo_wide.png";
+      await new Promise<void>(resolve => {
+        logoImg.onload = () => {
+          logoLoaded = true;
+          resolve();
+        };
+        logoImg.onerror = () => {
+          logoLoaded = false;
+          resolve();
+        };
+      });
+
+      if (logoLoaded && logoImg.naturalWidth > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.25; // elegant transparent watermark
+        const logoW = 280;
+        const logoH = logoW * (logoImg.naturalHeight / logoImg.naturalWidth);
+        const logoX = (canvas.width - logoW) / 2;
+        const logoY = 1735;
+        ctx.drawImage(logoImg, logoX, logoY, logoW, logoH);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.font = 'bold 24px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText("WATCHSHARE", canvas.width / 2, 1765);
+      }
       
       ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
       ctx.font = '500 16px Inter, sans-serif';
-      ctx.fillText("TMDB CONNECTION ACTIVE", canvas.width / 2, 1830);
+      ctx.textAlign = 'center';
+      ctx.fillText("TMDB CONNECTION ACTIVE", canvas.width / 2, 1805);
       ctx.restore();
 
       const blob = await new Promise<Blob | null>(res => {
@@ -667,7 +757,6 @@ export default function App() {
     }
     ctx.lineTo(cx, cy - outerRadius); 
     ctx.closePath(); 
-    ctx.fill();
   };
 
   const handleShare = async (item: TMDBItem) => {
@@ -742,13 +831,15 @@ export default function App() {
       {/* Dynamic Header */}
       <header className="sticky top-0 z-30 bg-black/90 backdrop-blur-xl px-6 py-4 flex items-center justify-between border-b border-white/10">
         <div 
-          className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition-opacity" 
+          className="flex items-center cursor-pointer hover:opacity-85 transition-opacity" 
           onClick={resetHome}
         >
-          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center font-bold font-oswald text-lg text-white shadow-md">W</div>
-          <span className="font-oswald text-xl uppercase tracking-wider font-bold">
-            WATCH<span className="text-red-500 font-black">SHARE</span>
-          </span>
+          <img 
+            src="/watchshare_logo_wide.png" 
+            alt="WatchShare" 
+            className="h-8 md:h-9 w-auto object-contain rounded" 
+            referrerPolicy="no-referrer"
+          />
         </div>
         
         <div className="flex items-center gap-2">
@@ -902,12 +993,22 @@ export default function App() {
                       onClick={() => setSelectedItem(item)} 
                       className="group relative aspect-[2/3] bg-neutral-900 rounded-2xl overflow-hidden cursor-pointer border border-white/5 hover:border-white/20 transition-all transform active:scale-95"
                     >
-                      <img 
-                        src={`${TMDB_IMAGE_BASE}${item.poster_path}`} 
-                        crossOrigin="anonymous"
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
-                        loading="lazy" 
-                      />
+                      {item.poster_path ? (
+                        <img 
+                          src={`${TMDB_IMAGE_BASE}${item.poster_path}`} 
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
+                          loading="lazy" 
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = 'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?auto=format&fit=crop&w=500&q=80';
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-neutral-950 flex flex-col items-center justify-center p-4 text-center border border-white/5 group-hover:border-white/10 transition-colors">
+                          <Film size={28} className="text-neutral-700 mb-2" />
+                          <span className="text-xs text-neutral-400 font-bold uppercase tracking-wider line-clamp-2 px-1 font-inter">{item.title}</span>
+                        </div>
+                      )}
                       <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-black border border-white/10 uppercase z-10 flex items-center gap-1">
                         <Film size={10} /> MOVIE
                       </div>
@@ -942,12 +1043,22 @@ export default function App() {
                       onClick={() => setSelectedItem(item)} 
                       className="group relative aspect-[2/3] bg-neutral-900 rounded-2xl overflow-hidden cursor-pointer border border-white/5 hover:border-white/20 transition-all transform active:scale-95"
                     >
-                      <img 
-                        src={`${TMDB_IMAGE_BASE}${item.poster_path}`} 
-                        crossOrigin="anonymous"
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
-                        loading="lazy" 
-                      />
+                      {item.poster_path ? (
+                        <img 
+                          src={`${TMDB_IMAGE_BASE}${item.poster_path}`} 
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
+                          loading="lazy" 
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = 'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?auto=format&fit=crop&w=500&q=80';
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-neutral-950 flex flex-col items-center justify-center p-4 text-center border border-white/5 group-hover:border-white/10 transition-colors">
+                          <Tv size={28} className="text-neutral-700 mb-2" />
+                          <span className="text-xs text-neutral-400 font-bold uppercase tracking-wider line-clamp-2 px-1 font-inter">{item.name}</span>
+                        </div>
+                      )}
                       <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-black border border-white/10 uppercase z-10 flex items-center gap-1">
                         <Tv size={10} /> TV
                       </div>
@@ -965,19 +1076,7 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="py-12 px-6 flex flex-col items-center gap-4 border-t border-white/5 pb-24">
-        <div 
-          onClick={() => setLogoTapped(!logoTapped)}
-          className={`flex items-center gap-3 cursor-pointer transition-all duration-300 ${
-            logoTapped ? 'opacity-100' : 'opacity-35 hover:opacity-60'
-          }`}
-        >
-          <div className="w-12 h-12 rounded-xl bg-neutral-900 border border-white/10 flex items-center justify-center font-bold text-white shadow-md">W</div>
-          <div className="text-left font-oswald uppercase tracking-widest text-sm">
-            <p className="font-light">CREATED WITH</p>
-            <p className="font-black text-red-500">WATCHSHARE</p>
-          </div>
-        </div>
+      <footer className="py-8 px-6 flex flex-col items-center gap-4 border-t border-white/5 pb-24">
         <p className="text-[10px] uppercase font-normal tracking-widest text-center text-white/35 max-w-xs leading-relaxed font-inter">
           This product uses the TMDB API but is not endorsed or certified by TMDB.
         </p>
@@ -1222,21 +1321,42 @@ export default function App() {
             >
               {/* Blurred background image layer */}
               <div className="absolute inset-0 z-0 pointer-events-none transition-opacity opacity-[0.45]">
-                <img src={backdropUrl} crossOrigin="anonymous" className="absolute inset-0 w-full h-full object-cover scale-[1.25] blur-[12px]" />
+                {backdropUrl ? (
+                  <img 
+                    src={backdropUrl} 
+                    className="absolute inset-0 w-full h-full object-cover scale-[1.25] blur-[12px]" 
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : null}
               </div>
               {/* Opacity mask */}
               <div 
                 className="absolute inset-0 z-[1] pointer-events-none" 
                 style={{ background: `linear-gradient(to bottom, rgba(${hexToRgb(bgColor)}, ${bgOpacity * 0.1}), rgba(${hexToRgb(bgColor)}, ${bgOpacity}))` }}
-              ></div>
-              
-              {/* Content overlay container */}
-              <div className="absolute inset-0 flex flex-col items-center z-[2]">
+              ></div>              {/* Content overlay container */}
+              <div className="absolute inset-0 z-[2] select-none">
                 
                 {/* Poster Box */}
                 <div className="absolute top-[14.58%] left-1/2 -translate-x-1/2 w-[59.25%] aspect-[2/3] shrink-0 overflow-visible">
                   <div className="w-full h-full overflow-hidden border border-white/15 shadow-2xl" style={{ borderRadius: '4.17cqw' }}>
-                    <img src={`${TMDB_IMAGE_BASE}${activePoster}`} crossOrigin="anonymous" className="w-full h-full object-cover" />
+                    {activePoster ? (
+                      <img 
+                        src={`${TMDB_IMAGE_BASE}${activePoster}`} 
+                        className="w-full h-full object-cover" 
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = 'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?auto=format&fit=crop&w=500&q=80';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-neutral-950 flex flex-col items-center justify-center p-6 text-center">
+                        {isTvSelected ? <Tv size={36} className="text-neutral-700 mb-3" /> : <Film size={36} className="text-neutral-700 mb-3" />}
+                        <span className="text-sm text-neutral-500 font-bold uppercase tracking-wider">{selectedItem?.title || selectedItem?.name}</span>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Poster Shuffle Trigger */}
@@ -1280,34 +1400,62 @@ export default function App() {
                   </div>
                   
                   {/* Metadata & Rating pill */}
-                  <div className="flex flex-col items-center w-full">
-                    <div className="inline-flex items-center justify-center bg-white/10 backdrop-blur-md rounded-full font-inter border border-white/15 px-5" style={{ height: '3.75cqh' }}>
-                      <div className="flex items-center gap-3 font-medium text-white whitespace-nowrap" style={{ fontSize: '3.14cqw' }}>
+                  <div className="flex flex-col items-center w-full -mt-2">
+                    <div 
+                      className="inline-flex items-center justify-center bg-white/10 backdrop-blur-md font-inter border border-white/15" 
+                      style={{ 
+                        height: '6.67cqw', 
+                        paddingLeft: '4.17cqw', 
+                        paddingRight: '4.17cqw', 
+                        borderRadius: '3.33cqw' 
+                      }}
+                    >
+                      <div className="flex items-center font-medium text-white whitespace-nowrap" style={{ fontSize: '3.14cqw', gap: '2.5cqw' }}>
                         <span>{(selectedItem.release_date || selectedItem.first_air_date || '').split('-')[0]}</span>
-                        <span className="w-1 h-1 bg-white/40 rounded-full"></span>
-                        <span className="text-yellow-400 font-bold flex items-center gap-0.5">
+                        <span className="bg-white/40 rounded-full shrink-0" style={{ width: '0.83cqw', height: '0.83cqw' }}></span>
+                        <span className="text-yellow-400 font-bold flex items-center" style={{ gap: '0.5cqw' }}>
                           ★ {selectedItem.vote_average?.toFixed(1) || '0.0'}
                         </span>
-                        <span className="w-1 h-1 bg-white/40 rounded-full"></span>
+                        <span className="bg-white/40 rounded-full shrink-0" style={{ width: '0.83cqw', height: '0.83cqw' }}></span>
                         <span className="text-white/60 uppercase tracking-tight">{isTvSelected ? 'SERIES' : 'MOVIE'}</span>
                       </div>
                     </div>
-
+                    
                     {/* Star personal reviews overlay */}
                     {personalRating > 0 && (
-                      <div className="flex items-center gap-2 mt-4 animate-slide-up">
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <Star 
-                            key={star} 
-                            size={16} 
-                            className={star <= personalRating ? "text-yellow-400 fill-yellow-400" : "text-white/20 fill-white/10"} 
-                          />
-                        ))}
+                      <div className="flex items-center select-none" style={{ gap: '1.2cqw', marginTop: '3.7cqw' }}>
+                        {[1, 2, 3, 4, 5].map(star => {
+                          const fillAmount = Math.max(0, Math.min(1, personalRating - (star - 1)));
+                          return (
+                            <div key={star} className="relative shrink-0" style={{ width: '3.4cqw', height: '3.4cqw' }}>
+                              {/* Background star */}
+                              <Star 
+                                className="text-white/20 fill-white/10 absolute inset-0 pointer-events-none"
+                                style={{ width: '100%', height: '100%' }}
+                              />
+                              {/* Foreground filled star */}
+                              {fillAmount > 0 && (
+                                <div 
+                                  className="absolute inset-y-0 left-0 overflow-hidden pointer-events-none" 
+                                  style={{ width: `${fillAmount * 100}%` }}
+                                >
+                                  <Star 
+                                    className="text-yellow-400 fill-yellow-400" 
+                                    style={{ width: '3.4cqw', height: '3.4cqw', maxWidth: 'none' }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
 
                 </div>
+
+
+                
               </div>
             </div>
 
@@ -1366,24 +1514,60 @@ export default function App() {
               )}
 
               {/* Personal rating review stars selection */}
-              <div className="flex items-center justify-between bg-neutral-900/60 backdrop-blur-xl px-5 sm:px-6 py-4 rounded-[2rem] border border-white/10">
-                <div className="flex items-center gap-2 shrink-0">
-                  <Star size={16} className="text-neutral-400" />
-                  <span className="text-[11px] sm:text-xs font-bold text-neutral-300 uppercase tracking-wide">Your Star Rating</span>
-                </div>
-                <div className="flex items-center gap-1 sm:gap-1.5">
-                  {[1, 2, 3, 4, 5].map(star => (
+              <div className="flex items-center justify-between bg-neutral-900/60 backdrop-blur-xl px-5 sm:px-6 py-4 rounded-[2rem] border border-white/10 gap-3">
+                <div className="flex items-center gap-1.5 shrink-0 min-w-0">
+                  <Star size={16} className="text-neutral-400 shrink-0" />
+                  <div className="flex flex-col text-left min-w-0">
+                    <span className="text-[10px] sm:text-xs font-bold text-neutral-300 uppercase tracking-wide truncate">Your Rating</span>
+                    <span className="text-[10px] font-bold text-white/40 font-mono">
+                      {personalRating > 0 ? `${personalRating.toFixed(1)} / 5.0` : 'NONE'}
+                    </span>
+                  </div>
+                  {personalRating > 0 && (
                     <button 
-                      key={star} 
-                      onClick={() => setPersonalRating(star === personalRating ? 0 : star)} 
-                      className="hover:scale-110 active:scale-95 transition-transform p-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPersonalRating(0);
+                      }}
+                      className="text-[10px] font-bold text-white/50 hover:text-white uppercase tracking-wider bg-white/5 hover:bg-white/10 border border-white/10 rounded-md px-1.5 py-0.5 ml-1.5 transition-all active:scale-95"
                     >
-                      <Star 
-                        size={24} 
-                        className={star <= personalRating ? "text-yellow-400 fill-yellow-400" : "text-white/20 hover:text-white/40"} 
-                      />
+                      Clear
                     </button>
-                  ))}
+                  )}
+                </div>
+                
+                {/* Slideable and Tappable Star Container */}
+                <div 
+                  className="flex items-center gap-1 cursor-ew-resize select-none touch-none py-1 relative shrink-0"
+                  onPointerDown={handleStarPointerDown}
+                  onPointerMove={handleStarPointerMove}
+                  onPointerUp={handleStarPointerUp}
+                  style={{ touchAction: 'none' }}
+                >
+                  {[1, 2, 3, 4, 5].map(star => {
+                    const fillAmount = Math.max(0, Math.min(1, personalRating - (star - 1)));
+                    return (
+                      <div key={star} className="relative shrink-0" style={{ width: '26px', height: '26px' }}>
+                        {/* Gray background star */}
+                        <Star 
+                          className="text-white/20 fill-white/10 absolute inset-0 pointer-events-none"
+                          style={{ width: '100%', height: '100%' }}
+                        />
+                        {/* Yellow foreground star */}
+                        {fillAmount > 0 && (
+                          <div 
+                            className="absolute inset-y-0 left-0 overflow-hidden pointer-events-none" 
+                            style={{ width: `${fillAmount * 100}%` }}
+                          >
+                            <Star 
+                              className="text-yellow-400 fill-yellow-400" 
+                              style={{ width: '26px', height: '26px', maxWidth: 'none' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
