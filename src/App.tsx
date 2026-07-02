@@ -969,6 +969,15 @@ export default function App() {
                     Search for movies or TV series, select your favorites, customize the backgrounds, ratings, and instantly download fully sized social media stories.
                   </p>
                 </div>
+                
+                {/* Add to Home Screen Button */}
+                <button
+                  onClick={() => setShowInstallModal(true)}
+                  className="flex items-center gap-2 px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-black font-extrabold text-xs uppercase tracking-widest rounded-full transition-all shadow-lg hover:shadow-yellow-500/20 active:scale-95 group font-inter mt-2"
+                >
+                  <Smartphone size={14} className="group-hover:scale-110 transition-transform text-black" />
+                  <span>Add to Home Screen</span>
+                </button>
               </div>
             )}
 
